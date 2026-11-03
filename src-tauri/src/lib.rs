@@ -35,9 +35,26 @@ fn show_pet(app:AppHandle)->Result<(),String>{app.get_webview_window("pet").ok_o
 #[tauri::command]
 fn hide_pet(app:AppHandle)->Result<(),String>{app.get_webview_window("pet").ok_or("Pet not found")?.hide().map_err(|e|e.to_string())}
 #[tauri::command]
-fn show_ball(app:AppHandle)->Result<(),String>{app.get_webview_window("ball").ok_or("Ball not found")?.show().map_err(|e|e.to_string())}
+fn show_ball(app:AppHandle)->Result<(),String>{
+ let w=app.get_webview_window("ball").ok_or("Ball not found")?;
+ w.show().map_err(|e|e.to_string())?;
+ // The transparent pet window still captures mouse input in its rectangular
+ // bounds on Windows. Keep the draggable ball ABOVE the pet window.
+ w.set_always_on_top(false).map_err(|e|e.to_string())?;
+ w.set_always_on_top(true).map_err(|e|e.to_string())
+}
 #[tauri::command]
 fn hide_ball(app:AppHandle)->Result<(),String>{app.get_webview_window("ball").ok_or("Ball not found")?.hide().map_err(|e|e.to_string())}
+#[tauri::command]
+fn set_fullscreen_click_through(app:AppHandle,enabled:bool)->Result<(),String>{
+ // Tauri delegates this to the native windowing backend. While enabled,
+ // both transparent overlays ignore pointer input so clicks reach the game.
+ for label in ["pet","ball"] {
+  let window=app.get_webview_window(label).ok_or(format!("{label} not found"))?;
+  window.set_ignore_cursor_events(enabled).map_err(|e|e.to_string())?;
+ }
+ Ok(())
+}
 #[tauri::command]
 fn resize_pet(app:AppHandle,size_percent:u32)->Result<(),String>{
  let w=app.get_webview_window("pet").ok_or("Pet not found")?;
@@ -74,7 +91,7 @@ fn move_pet_to_spot(app:AppHandle,spot:usize)->Result<(),String>{
 }
 pub fn run(){
  tauri::Builder::default().manage(Motion::default())
- .invoke_handler(tauri::generate_handler![chase_ball,show_pet,hide_pet,show_ball,hide_ball,resize_pet,resize_ball,move_pet_to_spot])
+ .invoke_handler(tauri::generate_handler![chase_ball,show_pet,hide_pet,show_ball,hide_ball,set_fullscreen_click_through,resize_pet,resize_ball,move_pet_to_spot])
  .setup(|app|{
   for label in ["dashboard","pet","ball"]{
    if let Some(w)=app.get_webview_window(label){
@@ -84,6 +101,11 @@ pub fn run(){
     #[cfg(target_os="macos")]
     if overlay {let _=w.set_visible_on_all_workspaces(true);}
    }
+  }
+  // Both overlays are topmost: make sure the ball is the upper one.
+  if let Some(ball)=app.get_webview_window("ball"){
+    let _=ball.set_always_on_top(false);
+    let _=ball.set_always_on_top(true);
   }
   Ok(())
  })

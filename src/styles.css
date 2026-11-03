@@ -29,3 +29,15 @@
 
 /* Keep sleep and transition sprites unmirrored; only walking faces direction. */
 .cat-art.sleep > img,.cat-art.lie-down .posture-transition,.cat-art.wake-up .posture-transition{transform:none!important}
+
+/* Windows WebView2 can render CSS drop-shadow filters as a rectangular
+   compositing layer on transparent topmost windows during frame swaps. */
+.overlay-root .cat-art.play > img,
+.overlay-root .cat-art.play img,
+.overlay-root .cat-art.play .cat-sprite {
+  filter:none!important;
+  box-shadow:none!important;
+  background:transparent!important;
+}
+
+.fullscreen-note{font-size:12px;line-height:1.4;color:var(--muted,#988ca6);margin:5px 0 13px}

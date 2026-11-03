@@ -4,15 +4,14 @@ import {emit,listen} from "@tauri-apps/api/event";
 import {invoke} from "@tauri-apps/api/core";
 import {CatArt,CatName,Mood} from "./CatArt";
 import ball0 from "./assets/ball-0.png";
-import purrWav from "./assets/purr.wav";
 import ball1 from "./assets/ball-1.png";
 import ball2 from "./assets/ball-2.png";
 import ball3 from "./assets/ball-3.png";
 import ball4 from "./assets/ball-4.png";
 const balls=[ball0,ball1,ball2,ball3,ball4];
 type Personality="relaxed"|"curious"|"playful";
-type Settings={cat:CatName;personality:Personality;size:number;followBall:boolean;petOnClick:boolean;spots:boolean[];paused:boolean};
-const defaults:Settings={cat:"mochi",personality:"curious",size:90,followBall:true,petOnClick:true,spots:[true,true,true,true],paused:false};
+type Settings={cat:CatName;personality:Personality;size:number;followBall:boolean;petOnClick:boolean;spots:boolean[];paused:boolean;showBall:boolean;fullscreenClickThrough:boolean};
+const defaults:Settings={cat:"mochi",personality:"curious",size:90,followBall:true,petOnClick:true,spots:[true,true,true,true],paused:false,showBall:true,fullscreenClickThrough:false};
 const KEY="desktop-cat-settings-v05";
 function readSettings():Settings{try{return {...defaults,...JSON.parse(localStorage.getItem(KEY)||"{}")}}catch{return defaults}}
 function useSettings(){const [s,setS]=useState(readSettings);useEffect(()=>{let off:(()=>void)|undefined;let dead=false;listen<Settings>("settings-changed",e=>{if(!dead)setS({...defaults,...e.payload})}).then(f=>{if(dead)f();else off=f});return()=>{dead=true;off?.()}},[]);return [s,setS] as const}
@@ -24,9 +23,8 @@ function Pet(){
  const [facing,setFacing]=useState<"left"|"right">("right");
  const moodRef=useRef<Mood>("sit"),endRef=useRef(0),chaseRef=useRef(0);
  const transitionTimer=useRef<number|undefined>();
- const audioRef=useRef<HTMLAudioElement|null>(null);
- const purrStop=useRef<(()=>void)|null>(null);
- const activeRef=useRef(false);
+ const ballVisibleRef=useRef(s.showBall);
+ useEffect(()=>{ballVisibleRef.current=s.showBall},[s.showBall]);
  const change=useCallback((m:Mood,duration=0)=>{
    window.clearTimeout(transitionTimer.current);
    moodRef.current=m;setMood(m);endRef.current=duration?Date.now()+duration:0;setFrame(0);
@@ -43,21 +41,8 @@ function Pet(){
      },1100);
    }else change(to);
  },[change]);
- // A breath-shaped, textured purr audio file replaces the electronic
- // 64 Hz triangle oscillator. The first pet click unlocks audio on macOS.
- const purr=useCallback(async(duration=1600)=>{
-   try {
-     purrStop.current?.();
-     const player=new Audio(purrWav);
-     player.volume=.65;
-     player.loop=duration>3500;
-     audioRef.current=player;
-     await player.play();
-     const timer=window.setTimeout(()=>{player.pause();player.currentTime=0},duration);
-     purrStop.current=()=>{window.clearTimeout(timer);player.pause();player.currentTime=0};
-   }catch(err){console.debug("Audio playback requires a pet click",err)}
- },[]);
  useEffect(()=>{invokeSafe("resize_pet",{sizePercent:s.size})},[s.size]);
+ useEffect(()=>{void invokeSafe("set_fullscreen_click_through",{enabled:s.fullscreenClickThrough})},[s.fullscreenClickThrough]);
  useEffect(()=>{const id=window.setInterval(()=>setFrame(f=>f+1),mood==="walk"?72:mood==="groom"?430:mood==="play"?390:1100);return()=>clearInterval(id)},[mood]);
  useEffect(()=>{
    // Idle decisions are spaced out; sleeping is common and lasts 17-32 seconds.
@@ -80,7 +65,7 @@ function Pet(){
  useEffect(()=>{
    let off:(()=>void)|undefined,dead=false;
    listen<{x:number;y:number}>("ball-released",async e=>{
-     if(!s.followBall||s.paused)return;
+     if(!s.followBall||s.paused||!ballVisibleRef.current)return;
      const id=++chaseRef.current;
      try{
        const w=getCurrentWindow(),p=await w.outerPosition(),size=await w.outerSize();
@@ -94,34 +79,33 @@ function Pet(){
      }
      change("walk");
      try{await invoke("chase_ball",{targetX:e.payload.x,targetY:e.payload.y})}
-     catch(err){console.error("chase_ball",err);change("sit");await invokeSafe("show_ball");return}
+     catch(err){console.error("chase_ball",err);change("sit");if(ballVisibleRef.current)await invokeSafe("show_ball");return}
      if(!dead&&chaseRef.current===id){
        await invokeSafe("hide_ball");
        change("play",3300);
-       if(activeRef.current)void purr(2300);
        window.setTimeout(async()=>{
          if(dead||chaseRef.current!==id)return;
          change("sit");
-         await invokeSafe("show_ball");
+         if(ballVisibleRef.current)await invokeSafe("show_ball");
        },3300);
      }
    }).then(f=>dead?f():off=f);
    return()=>{dead=true;off?.()};
- },[s.followBall,s.paused,change,purr]);
+ },[s.followBall,s.paused,s.showBall,change]);
  const pet=()=>{
    if(!s.petOnClick||s.paused)return;
-   activeRef.current=true;
    if(moodRef.current==="sleep"||moodRef.current==="lie-down"){
      settle("sit");
-     window.setTimeout(()=>{change("pet",2200);void purr(2200)},1150);
-   }else{change("pet",2200);void purr(2200)}
+     window.setTimeout(()=>change("pet",2200),1150);
+   }else{change("pet",2200)}
  };
- useEffect(()=>()=>{window.clearTimeout(transitionTimer.current);purrStop.current?.();audioRef.current?.pause()},[]);
+ useEffect(()=>()=>{window.clearTimeout(transitionTimer.current)},[]);
  return <main className="pet-stage"><button className="pet-hit" onClick={pet} aria-label="Pet your cat"><CatArt name={s.cat} mood={mood} frame={frame} facing={facing}/></button></main>;
 }
 function Ball(){
  const [s]=useSettings();
  useEffect(()=>{void invokeSafe("resize_ball",{sizePercent:s.size})},[s.size]);
+ useEffect(()=>{void invokeSafe(s.showBall?"show_ball":"hide_ball")},[s.showBall]);
  const [rolling,setRolling]=useState(false),[frame,setFrame]=useState(0);
  const start=useRef<{x:number;y:number;px:number;py:number;scale:number}|null>(null);
  const pending=useRef<Promise<void>|null>(null);
@@ -154,6 +138,12 @@ function Ball(){
   void tick();
  };
  const up=()=>{void (async()=>{await pending.current;if(start.current)await emitDrop()})()};
+ useEffect(()=>{
+   const onUp=()=>{if(start.current)up()};
+   window.addEventListener("pointerup",onUp);
+   window.addEventListener("blur",onUp);
+   return()=>{window.removeEventListener("pointerup",onUp);window.removeEventListener("blur",onUp)};
+ },[emitDrop]);
  return <main className="ball-stage"><button className={`ball-hit ${rolling?"rolling":""}`} aria-label="Drag the yarn ball" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}><img src={balls[frame]} draggable={false} alt="Illustrated yarn ball"/></button></main>
 }
 function Toggle({value,onChange}:{value:boolean;onChange:(v:boolean)=>void}){return <button className={`toggle ${value?"on":""}`} aria-pressed={value} onClick={()=>onChange(!value)}><i/></button>}
@@ -163,14 +153,15 @@ function Dashboard(){
  useEffect(()=>{localStorage.setItem(KEY,JSON.stringify(s));void emit("settings-changed",s)},[s]);
  const spots=["Top left","Top right","Bottom left","Bottom right"];
  const setSpot=(i:number)=>{void invokeSafe("move_pet_to_spot",{spot:i})};
+ const setBallVisible=(visible:boolean)=>{patch({showBall:visible});void invokeSafe(visible?"show_ball":"hide_ball")};
  return <main className="dashboard"><aside className="sidebar"><div className="brand"><span>🐾</span><div><b>Desktop Cat</b><small>Your little desktop companion</small></div></div><p className="side-label">YOUR COMPANION</p>{["Cat","Settings","About"].map(t=><button key={t} className={`nav ${tab===t?"active":""}`} onClick={()=>setTab(t)}>{t==="Cat"?"🐾":t==="Settings"?"⚙":"♡"}　{t==="Cat"?"Choose your cat":t}</button>)}<p className="sidebar-foot">● Companion ready</p></aside><section className="content"><header className="topbar"><div><h1>{tab==="Cat"?"Choose your cat":tab}</h1><p>Meet your tiny desktop companion.</p></div><button className="primary" onClick={()=>invokeSafe("show_pet")}>Show on desktop ↗</button></header>
  {tab==="Cat"&&<><div className="cat-grid">{(["mochi","luna","cocoa"] as CatName[]).map(name=><button key={name} className={`cat-card ${s.cat===name?"chosen":""}`} onClick={()=>patch({cat:name})}><CatArt name={name}/><b>{name==="mochi"?"Mochi":name==="luna"?"Luna":"Cocoa"}</b><small>{name==="luna"?"Female":name==="cocoa"?"Chocolate British Shorthair":"Male"}</small><p>{name==="mochi"?"Calm · Curious · Playful":name==="luna"?"Sweet · Curious · Affectionate":"Gentle · Cozy · Playful"}</p></button>)}</div>
  <section className="panel"><h2>★　Favorite spots</h2><p>Click a spot to move your cat there. Toggle spots for future roaming.</p><div className="spots"><div>{spots.map((name,i)=><div className="setting-row" key={name}><button className="spot-button" onClick={()=>setSpot(i)}>⌖　{name}</button><Toggle value={s.spots[i]} onChange={v=>patch({spots:s.spots.map((b,j)=>i===j?v:b)})}/></div>)}</div><div className="monitor">{spots.map((name,i)=><button key={name} className={`pin pin${i}`} onClick={()=>setSpot(i)} style={{opacity:s.spots[i]?1:.35}}>🐾</button>)}</div></div></section>
  <section className="panel"><h2>✿　Personality</h2>{(["relaxed","curious","playful"] as Personality[]).map(p=><button key={p} className="personality" onClick={()=>patch({personality:p})}><span className={`radio ${s.personality===p?"selected":""}`}/><span><b>{p[0].toUpperCase()+p.slice(1)}</b><small>{p==="relaxed"?"More naps, gentle movement":p==="curious"?"Blinks, grooms and explores":"More play and excited reactions"}</small></span></button>)}</section>
- <div className="two-col"><section className="panel"><h2>⚙　Interactions</h2><div className="setting-row"><span>Follow yarn ball</span><Toggle value={s.followBall} onChange={v=>patch({followBall:v})}/></div><div className="setting-row"><span>Pet when clicked</span><Toggle value={s.petOnClick} onChange={v=>patch({petOnClick:v})}/></div><div className="setting-row"><span>Pause movement</span><Toggle value={s.paused} onChange={v=>patch({paused:v})}/></div></section><section className="panel"><h2>♧　Cat size: {s.size}%</h2><input type="range" min="65" max="115" value={s.size} onChange={e=>patch({size:+e.target.value})}/><p>Changes apply to the live pet window.</p></section></div>
- <div className="actions"><button className="secondary" onClick={()=>invokeSafe("show_ball")}>Show yarn ball</button><button className="secondary" onClick={()=>invokeSafe("hide_pet")}>Hide cat</button><button className="primary" onClick={()=>invokeSafe("show_pet")}>Show cat</button></div></>}
- {tab==="Settings"&&<section className="panel"><h2>Desktop controls</h2><p>Drag the yarn ball to make your cat chase it. Click the cat to pet it.</p><div className="actions"><button className="secondary" onClick={()=>invokeSafe("show_pet")}>Show cat</button><button className="secondary" onClick={()=>invokeSafe("show_ball")}>Show ball</button><button className="secondary" onClick={()=>invokeSafe("hide_pet")}>Hide cat</button></div></section>}
- {tab==="About"&&<section className="panel"><h2>Desktop Cat v1.2</h2><p>Illustrated Mochi, Luna and Cocoa, natural idle animations, a tiny yarn ball, and desktop interactions.</p></section>}
+ <div className="two-col"><section className="panel"><h2>⚙　Interactions</h2><div className="setting-row"><span>Fullscreen overlay (click-through)</span><Toggle value={s.fullscreenClickThrough} onChange={v=>patch({fullscreenClickThrough:v})}/></div><p className="fullscreen-note">When enabled, the cat and yarn ball stay visible but do not intercept game clicks. Disable to pet the cat or drag the ball.</p><div className="setting-row"><span>Show yarn ball</span><Toggle value={s.showBall} onChange={setBallVisible}/></div><div className="setting-row"><span>Follow yarn ball</span><Toggle value={s.followBall} onChange={v=>patch({followBall:v})}/></div><div className="setting-row"><span>Pet when clicked</span><Toggle value={s.petOnClick} onChange={v=>patch({petOnClick:v})}/></div><div className="setting-row"><span>Pause movement</span><Toggle value={s.paused} onChange={v=>patch({paused:v})}/></div></section><section className="panel"><h2>♧　Cat size: {s.size}%</h2><input type="range" min="65" max="115" value={s.size} onChange={e=>patch({size:+e.target.value})}/><p>Changes apply to the live pet window.</p></section></div>
+ <div className="actions"><button className="secondary" onClick={()=>setBallVisible(!s.showBall)}>{s.showBall?"Hide yarn ball":"Show yarn ball"}</button><button className="secondary" onClick={()=>invokeSafe("hide_pet")}>Hide cat</button><button className="primary" onClick={()=>invokeSafe("show_pet")}>Show cat</button></div></>}
+ {tab==="Settings"&&<section className="panel"><h2>Desktop controls</h2><p>Drag the yarn ball to make your cat chase it. Click the cat to pet it.</p><div className="actions"><button className="secondary" onClick={()=>invokeSafe("show_pet")}>Show cat</button><button className="secondary" onClick={()=>setBallVisible(!s.showBall)}>{s.showBall?"Hide ball":"Show ball"}</button><button className="secondary" onClick={()=>invokeSafe("hide_pet")}>Hide cat</button></div></section>}
+ {tab==="About"&&<section className="panel"><h2>Desktop Cat v1.7</h2><p>Illustrated Mochi, Luna and Cocoa, natural idle animations, a tiny yarn ball, and desktop interactions.</p></section>}
  </section></main>
 }
 export default function App(){const label=getCurrentWindow().label;useEffect(()=>{document.documentElement.className=label==="dashboard"?"dashboard-root":"overlay-root";document.body.className=label==="dashboard"?"dashboard-body":"overlay-body"},[label]);return label==="pet"?<Pet/>:label==="ball"?<Ball/>:<Dashboard/>}
