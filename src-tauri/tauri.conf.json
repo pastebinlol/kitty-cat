@@ -1,0 +1,85 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Desktop Cat",
+  "version": "1.5.0",
+  "identifier": "com.kittycat.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "dashboard",
+        "title": "Desktop Cat",
+        "url": "index.html",
+        "width": 820,
+        "height": 900,
+        "minWidth": 680,
+        "minHeight": 720,
+        "center": true,
+        "decorations": true,
+        "resizable": true,
+        "visible": true
+      },
+      {
+        "label": "pet",
+        "title": "Desktop Cat Pet",
+        "url": "index.html",
+        "width": 250,
+        "height": 230,
+        "x": 110,
+        "y": 510,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": {
+          "red": 0,
+          "green": 0,
+          "blue": 0,
+          "alpha": 0
+        },
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": true
+      },
+      {
+        "label": "ball",
+        "title": "Desktop Cat Yarn Ball",
+        "url": "index.html",
+        "width": 90,
+        "height": 90,
+        "x": 450,
+        "y": 580,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": {
+          "red": 0,
+          "green": 0,
+          "blue": 0,
+          "alpha": 0
+        },
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}
